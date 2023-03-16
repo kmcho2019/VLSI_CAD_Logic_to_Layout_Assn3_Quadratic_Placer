@@ -478,25 +478,7 @@ def part_1_pad_gate_dict_generator(gate_adjacency_dict: dict, pad_gate_dict: dic
     return part_1_pad_gate_dict
 
 
-# generate gate adjacency dictionary and pad gate dictionary for the two partitions while also carrying out porpagation of gates and pads
-# INPUTS:
-# gate_adjacency_dict: encodes an adjacency list consisting of gates (gate_num): [adjacent_gate1, ...]
-# pad_gate_dict: stores information about gates adjacent to pads and coordinate of pads
-# part_0_x_vector: contains the x coordinates of gates in partition 0
-# part_0_y_vector: contains the y coordinates of gates in partition 0
-# part_0_gate_vector_map: maps the index to gate number for partition 0
-# vice versa for part_1_x/y_vector and gate_vector_map
-# cut_orientation: boolean value that specifies cut direction 1: Vertical(Right/Left) 0: Horizontal(Top/Bottom)
-# cut_line: defines cut_line coordinates
-def partition_generator(gate_adjacency_dict: dict, pad_gate_dict: dict, part_0_x_vector: np.array,
-                                   part_0_y_vector: np.array, part_0_gate_vector_map: np.array,
-                                   part_1_x_vector: np.array, part_1_y_vector: np.array,
-                                   part_1_gate_vector_map: np.array, cut_orientation: bool, cutline: float) -> (
-dict, dict, dict, dict):
-    part_0_gate_adjacency_dict, part_1_gate_adjacency_dict = partition_adjacency_dict_generator(gate_adjacency_dict,part_0_gate_vector_map, part_1_gate_vector_map)
 
-    part_0_pad_gate_dict = part_0_pad_gate_dict_generator()
-    return part_0_gate_adjacency_dict, part_0_pad_gate_dict, part_1_gate_adjacency_dict, part_1_pad_gate_dict
 
 
 # merge the x and y gate position vectors for both part_0 and part_1, simply concatenates part_0, part_1 preserving internal order
