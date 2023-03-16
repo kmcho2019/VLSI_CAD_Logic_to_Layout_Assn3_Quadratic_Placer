@@ -293,7 +293,7 @@ def output_file_generator(gate_x_array, gate_y_array, file_name=r'default_output
 # gate_vector_map : 1D array with (index) -> (gate_num)
 # config: decides the partition and sort direction
 #   - True (partition by left/right 100000 * x + y)
-#   - False (partition by top/bottom 100000 * y + x)
+#   - False (partition by bottom/top 100000 * y + x)
 # output: (part_0_x_vector, part_0_y_vector, part_0_gate_vector_map, part_1_x_vector, part_1_y_vector, part_1_gate_vector_map)
 def sort_vector_generator(x_vector: np.array, y_vector: np.array, gate_vector_map: np.array, config=True,
                           multiplier=10000.0) -> (np.array, np.array, np.array, np.array, np.array, np.array):
@@ -349,17 +349,18 @@ def partition_adjacency_dict_generator(gate_adjacency_dict:dict, part_0_gate_vec
 # part_0_x_vector: contains the x coordinates of gates in partition 0
 # part_0_y_vector: contains the y coordinates of gates in partition 0
 # part_0_gate_vector_map: maps the index to gate number for partition 0
-# cut_orientation: boolean value that specifies cut direction 1: Vertical(Right/Left) 0: Horizontal(Top/Bottom)
+# cut_orientation: boolean value that specifies cut direction 1: Vertical(Left/Right) 0: Horizontal(Bottom/Top)
 # cut_line: defines cut_line coordinates
+# part_0: Left or Bottom, part_1: Right or Top depending on orientation; part_0 has lower key value compared to part_1
 def part_0_pad_gate_dict_generator(gate_adjacency_dict: dict, pad_gate_dict: dict, part_0_gate_vector_map: np.array,
                                    part_1_x_vector: np.array, part_1_y_vector: np.array,
                                    part_1_gate_vector_map: np.array, cut_orientation: bool, cutline: float) -> dict:
     # When cut_orientation == True(1), cutline vertical, part_0 left, part_1 right
-    # When cut_orientation == False(0), cutline horizontal, part_0 top, part_1 bottom
+    # When cut_orientation == False(0), cutline horizontal, part_0 bottom, part_1 top
     part_0_pad_gate_dict = {}
     max_pad_num = max(pad_gate_dict.keys())
 
-    # 1: Left/Top-side(part_0) containment step
+    # 1: Left/Bottom-side(part_0) containment step
     # 1-1: find connected gates and pads that should be propagated to cutline
     connected_gates_in_part_1 = []
     for part_0_gate in part_0_gate_vector_map:
@@ -374,11 +375,11 @@ def part_0_pad_gate_dict_generator(gate_adjacency_dict: dict, pad_gate_dict: dic
         compare_coordinate = x_y_coordinate[cut_orientation]
         for pad_connected_gate in pad_gate_dict[pad]['connected_gates']:
             if pad_connected_gate in part_0_gate_vector_map:
-                if compare_coordinate < cutline:
-                    connected_pads_in_part_1.append(pad)
-                    break # pad's status is already determined no need to check further
-                else:
+                if compare_coordinate < cutline: # when pad is located left or bottom of cutline, pad at part_0
                     connected_pads_in_part_0.append(pad)
+                    break # pad's status is already determined no need to check further
+                else: # pad located right or top of cutline, pad at part_1
+                    connected_pads_in_part_1.append(pad)
                     break # pad's status is already determined no need to check further
     # 1-2: Add the connected pads with no need for propagation(connected_pads_in_part_0) to part_0_pad_gate_dict
     for pad in connected_pads_in_part_0:
@@ -392,7 +393,7 @@ def part_0_pad_gate_dict_generator(gate_adjacency_dict: dict, pad_gate_dict: dic
         gate_list = [x for x in pad_gate_dict[propagate_pad]['connected_gates'] if x in part_0_gate_vector_map]
         if cut_orientation == 1: # if cut_orientation is vertical left/right, propagate x coordinate to cutline
             x_y_coordinate = (cutline, pad_gate_dict[propagate_pad]['x_y_coordinate'][1])
-        else: # if cut_orientation is horizontal top/bottom, propagate y coordinate to cutline
+        else: # if cut_orientation is horizontal bottom/top, propagate y coordinate to cutline
             x_y_coordinate = (pad_gate_dict[propagate_pad]['x_y_coordinate'][0], cutline)
         pad_trait = {'connected_gates': gate_list, 'x_y_coordinate': x_y_coordinate}
         part_0_pad_gate_dict[propagate_pad] = pad_trait
@@ -408,6 +409,74 @@ def part_0_pad_gate_dict_generator(gate_adjacency_dict: dict, pad_gate_dict: dic
         part_0_pad_gate_dict[propagate_gate] = pad_trait
 
     return part_0_pad_gate_dict
+
+# generate pad_gate_dict for part_1 while propagating gates/pads from part_0 (which already went through quadratic placement)
+# INPUTS:
+# gate_adjacency_dict: encodes an adjacency list consisting of gates (gate_num): [adjacent_gate1, ...]
+# pad_gate_dict: stores information about gates adjacent to pads and coordinate of pads
+# part_1_x_vector: contains the x coordinates of gates in partition 1
+# part_1_y_vector: contains the y coordinates of gates in partition 1
+# part_1_gate_vector_map: maps the index to gate number for partition 1
+# cut_orientation: boolean value that specifies cut direction 1: Vertical(Right/Left) 0: Horizontal(Top/Bottom)
+# cut_line: defines cut_line coordinates
+def part_1_pad_gate_dict_generator(gate_adjacency_dict: dict, pad_gate_dict: dict, part_1_gate_vector_map: np.array,
+                                   part_0_x_vector: np.array, part_0_y_vector: np.array,
+                                   part_0_gate_vector_map: np.array, cut_orientation: bool, cutline: float) -> dict:
+    # When cut_orientation == True(1), cutline vertical, part_0 left, part_1 right
+    # When cut_orientation == False(0), cutline horizontal, part_0 bottom, part_1 top
+    part_1_pad_gate_dict = {}
+    max_pad_num = max(pad_gate_dict.keys())
+
+    # 1: Right/Bottom-side(part_1) containment step
+    # 1-1: find connected gates and pads that should be propagated to cutline
+    connected_gates_in_part_0 = []
+    for part_1_gate in part_1_gate_vector_map:
+        connected_gates_in_part_0.append(x for x in gate_adjacency_dict[part_1_gate] if x in part_0_gate_vector_map)
+    connected_pads_in_part_0 = [] # need to be propagated as it sits opposite of cutline
+    connected_pads_in_part_1 = [] # preserve coordinate as it is both connected and not propagated, coordinate preserved
+    for pad in pad_gate_dict:
+        x_y_coordinate = pad_gate_dict[pad]['x_y_coordinate']
+        # depending on the cut orientation the compare_coordinate should be either right or bottom of cutline
+        # it is x or y coordinate of pad depending on cut orientation
+        # x(0 idx) for vertical cut y(1 idx) for horizontal cut
+        compare_coordinate = x_y_coordinate[cut_orientation]
+        for pad_connected_gate in pad_gate_dict[pad]['connected_gates']:
+            if pad_connected_gate in part_0_gate_vector_map:
+                if compare_coordinate < cutline: # pad located left or bottom of cutline
+                    connected_pads_in_part_0.append(pad)
+                    break # pad's status is already determined no need to check further
+                else:   # pad located right or top of cutline
+                    connected_pads_in_part_1.append(pad)
+                    break # pad's status is already determined no need to check further
+    # 1-2: Add the connected pads with no need for propagation(connected_pads_in_part_1) to part_1_pad_gate_dict
+    for pad in connected_pads_in_part_1:
+        # only add to gate list if that gate is in part_1
+        gate_list = [x for x in pad_gate_dict[pad]['connected_gates'] if x in part_1_gate_vector_map]
+        pad_trait = {'connected_gates': gate_list, 'x_y_coordinate': pad_gate_dict[pad]['x_y_coordinate']}
+        part_1_pad_gate_dict[pad] = pad_trait
+    # 1-3: Propagate the pads in part_0(connected_pads_in_part_0) to cutline
+    for propagate_pad in connected_pads_in_part_0:
+        # only add to gate list if that gate is in part_0
+        gate_list = [x for x in pad_gate_dict[propagate_pad]['connected_gates'] if x in part_1_gate_vector_map]
+        if cut_orientation == 1: # if cut_orientation is vertical left/right, propagate x coordinate to cutline
+            x_y_coordinate = (cutline, pad_gate_dict[propagate_pad]['x_y_coordinate'][1])
+        else: # if cut_orientation is horizontal top/bottom, propagate y coordinate to cutline
+            x_y_coordinate = (pad_gate_dict[propagate_pad]['x_y_coordinate'][0], cutline)
+        pad_trait = {'connected_gates': gate_list, 'x_y_coordinate': x_y_coordinate}
+        part_1_pad_gate_dict[propagate_pad] = pad_trait
+    # 1-4: Propagate the gates to cutline
+    for propagate_gate in connected_gates_in_part_0:
+        # only add to gate list if that gate is in part_1
+        gate_list = [x for x in gate_adjacency_dict[propagate_gate] if x in part_1_gate_vector_map]
+        if cut_orientation == 1: # if cut_orientation is vertical left/right, propagate x coordinate to cutline
+            x_y_coordinate = (cutline, part_0_y_vector[int(np.where(part_1_gate_vector_map == propagate_gate))])
+        else: # if cut_orientation is horizontal top/bottom, propagate y coordinate to cutline
+            x_y_coordinate = (part_0_x_vector[int(np.where(part_1_gate_vector_map == propagate_gate))], cutline)
+        pad_trait = {'connected_gates': gate_list, 'x_y_coordinate': x_y_coordinate}
+        part_1_pad_gate_dict[propagate_gate] = pad_trait
+
+    return part_1_pad_gate_dict
+
 
 # generate gate adjacency dictionary and pad gate dictionary for the two partitions while also carrying out porpagation of gates and pads
 # INPUTS:
@@ -428,6 +497,25 @@ dict, dict, dict, dict):
 
     part_0_pad_gate_dict = part_0_pad_gate_dict_generator()
     return part_0_gate_adjacency_dict, part_0_pad_gate_dict, part_1_gate_adjacency_dict, part_1_pad_gate_dict
+
+
+# merge the x and y gate position vectors for both part_0 and part_1, simply concatenates part_0, part_1 preserving internal order
+def merge_partition(part_0_x_vector, part_0_y_vector, part_1_x_vector,
+                                                             part_1_y_vector, part_0_gate_vector_map,
+                                                             part_1_gate_vector_map):
+    merged_x = np.append(part_0_x_vector, part_1_x_vector)
+    merged_y = np.append(part_0_y_vector, part_1_y_vector)
+    merged_gate_vector_map = np.append(part_0_gate_vector_map, part_1_gate_vector_map)
+    return merged_x, merged_y, merged_gate_vector_map
+# when the complete number of gates are obtained sort the whole merge_gate_vector_map in ascending order of gate number along with the x and y vectors, to prepare it for the output_file_generator()
+def sort_partition(merged_x, merged_y, merged_gate_vector_map):
+    # sort gate_vector_map in ascending order of gate number
+    idx = np.argsort(merged_gate_vector_map)
+    # order the x and y gate coordinate vectors the same order as ascending gate number
+    sorted_x = merged_x[idx]
+    sorted_y = merged_y[idx]
+    return sorted_x, sorted_y
+
 
 
 # uses functions to implement the 3 Quadratic Placement
@@ -459,7 +547,7 @@ def core_3qp_placer(input_file_path: str) -> np.array:
     # QR2: conduct placement of left partition of QR1
     # 1. assign partition of QP1, left and right (x vectors)
     initial_gate_vector_map = np.array([(x + 1) for x in range(number_of_gates)])
-    part_0_x_vector, part_0_x_vector, part_0_gate_vector_map, part_1_x_vector, part_1_y_vector, part_1_gate_vector_map = sort_vector_generator(x, y, initial_gate_vector_map)
+    part_0_x_vector, part_0_y_vector, part_0_gate_vector_map, part_1_x_vector, part_1_y_vector, part_1_gate_vector_map = sort_vector_generator(x, y, initial_gate_vector_map)
 
     part_0_gate_num = len(part_0_gate_vector_map)
     part_1_gate_num = len(part_1_gate_vector_map)
@@ -481,12 +569,12 @@ def core_3qp_placer(input_file_path: str) -> np.array:
     part_0_pad_weight_array = pad_gate_dict_pad_weight_array_calculator(part_0_pad_gate_dict, part_0_gate_vector_map)
     part_0_V_matrix_csr_format = C_to_V_matrix_converter(part_0_C_matrix_csr, part_0_pad_weight_array)
     part_0_bx_array, part_0_by_array = pad_gate_dict_b_vector_generator(part_0_pad_gate_dict, part_0_gate_vector_map)
-    part_0_x = sci.sparse.linalg.spsolve(part_0_V_matrix_csr_format, part_0_bx_array)
-    part_0_y = sci.sparse.linalg.spsolve(part_0_V_matrix_csr_format, part_0_by_array)
+    part_0_x_vector = sci.sparse.linalg.spsolve(part_0_V_matrix_csr_format, part_0_bx_array)
+    part_0_y_vector = sci.sparse.linalg.spsolve(part_0_V_matrix_csr_format, part_0_by_array)
 
     # QR3: conduct right partition of QR1
     # propagate already placed pads/gates from part_0 to setup pads for part_1
-    part_1_pad_gate_dict = part_1_pad_gate_dict_generator()
+    part_1_pad_gate_dict = part_1_pad_gate_dict_generator(gate_adjacency_dict, pad_gate_dict, part_1_gate_vector_map, part_0_x_vector, part_0_y_vector, part_0_gate_vector_map, cut_orientation, qr1_x_cutline)
 
     # perform placement on part_1
     part_1_V, part_1_R, part_1_C = vrc_array_generator_from_gate_adjacency_dict(part_1_gate_adjacency_dict, part_1_gate_vector_map)
@@ -496,11 +584,13 @@ def core_3qp_placer(input_file_path: str) -> np.array:
     part_1_pad_weight_array = pad_gate_dict_pad_weight_array_calculator(part_1_pad_gate_dict)
     part_1_V_matrix_csr_format = C_to_V_matrix_converter(part_1_C_matrix_csr, part_1_pad_weight_array)
     part_1_bx_array, part_1_by_array = pad_gate_dict_b_vector_generator(part_1_pad_gate_dict, part_1_gate_vector_map)
-    part_1_x = sci.sparse.linalg.spsolve(part_1_V_matrix_csr_format, part_1_bx_array)
-    part_1_y = sci.sparse.linalg.spsolve(part_1_V_matrix_csr_format, part_1_by_array)
+    part_1_x_vector = sci.sparse.linalg.spsolve(part_1_V_matrix_csr_format, part_1_bx_array)
+    part_1_y_vector = sci.sparse.linalg.spsolve(part_1_V_matrix_csr_format, part_1_by_array)
 
-    merged_x, merged_y = merge_partition(part_0_x, part_0_y, part_1_x, part_1_y, part_0_gate_vector_map, part_1_gate_vector_map)
-
+    # merge the x and y gate position vectors for both part_0 and part_1, simply concatenates part_0, part_1 preserving internal order
+    merged_x, merged_y, merged_gate_vector_map = merge_partition(part_0_x_vector, part_0_y_vector, part_1_x_vector, part_1_y_vector, part_0_gate_vector_map, part_1_gate_vector_map)
+    # when the complete number of gates are obtained sort the whole merge_gate_vector_map in ascending order of gate number along with the x and y vectors, to prepare it for the output_file_generator()
+    sorted_x, sorted_y = sort_partition(merged_x, merged_y, merged_gate_vector_map)
 
 
     # part_0_gate_adjacency_dict, part_0_pad_gate_dict, part_1_gate_adjacency_dict, part_1_pad_gate_dict = partition_generator(
